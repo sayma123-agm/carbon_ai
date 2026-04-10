@@ -1,0 +1,814 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EcoTrace GPS — AI Carbon Intelligence</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Orbitron:wght@400;600;700;900&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+/* ══════════════════════════════════════════════
+   DESIGN SYSTEM — CYBERPUNK EARTH AESTHETIC
+   Dark jade + electric cyan + amber alerts
+   ══════════════════════════════════════════════ */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg0:    #040d08;
+  --bg1:    #071209;
+  --bg2:    #0b1a0f;
+  --bg3:    #0f2214;
+  --glass:  rgba(15,34,20,0.85);
+  --border: rgba(0,255,128,0.1);
+  --bh:     rgba(0,255,128,0.25);
+
+  --c0:     #00ff80;  /* primary neon green */
+  --c1:     #00e5b0;  /* teal */
+  --c2:     #7fff00;  /* chartreuse */
+  --ca:     #ffaa00;  /* amber alert */
+  --cr:     #ff4060;  /* red alert */
+  --cp:     #8080ff;  /* purple/metro */
+  --text:   #d4f0dc;
+  --muted:  #4d8060;
+  --faint:  #1a3020;
+
+  --font-ui:   'Space Grotesk', sans-serif;
+  --font-data: 'Orbitron', monospace;
+  --font-mono: 'DM Mono', monospace;
+  --r:    10px;
+  --r2:   16px;
+}
+
+body {
+  background: var(--bg0);
+  color: var(--text);
+  font-family: var(--font-ui);
+  min-height: 100vh;
+  overflow: hidden;
+}
+
+/* ─── SCANLINE OVERLAY ─── */
+body::after {
+  content: '';
+  position: fixed; inset: 0;
+  background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,255,128,0.012) 2px, rgba(0,255,128,0.012) 4px);
+  pointer-events: none; z-index: 9999;
+}
+
+/* ─── HUD LAYOUT ─── */
+.hud {
+  display: grid;
+  grid-template-columns: 280px 1fr 320px;
+  grid-template-rows: 60px 1fr;
+  height: 100vh;
+  gap: 0;
+}
+
+/* ─── TOP BAR ─── */
+.topbar {
+  grid-column: 1/-1;
+  background: var(--bg1);
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center;
+  padding: 0 20px; gap: 24px;
+}
+.logo { display: flex; align-items: center; gap: 10px; }
+.logo-mark {
+  width: 36px; height: 36px; border-radius: 8px;
+  background: linear-gradient(135deg, #00ff80, #00b050);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 18px;
+  box-shadow: 0 0 16px rgba(0,255,128,0.4);
+}
+.logo-name { font-family: var(--font-data); font-size: 16px; font-weight: 700; letter-spacing: 2px; color: var(--c0); }
+.logo-sub  { font-size: 9px; color: var(--muted); letter-spacing: 3px; text-transform: uppercase; }
+
+.topbar-mid { flex: 1; display: flex; align-items: center; gap: 32px; padding-left: 32px; }
+.gps-status {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 11px; letter-spacing: 1px; color: var(--muted); text-transform: uppercase;
+}
+.gps-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--c0); animation: gpsblink 1s infinite; }
+@keyframes gpsblink { 0%,100%{opacity:1;box-shadow:0 0 0 0 rgba(0,255,128,0.6)} 50%{opacity:0.6;box-shadow:0 0 0 6px rgba(0,255,128,0)} }
+
+.coord-display {
+  font-family: var(--font-mono); font-size: 11px; color: var(--c1); letter-spacing: 0.5px;
+}
+
+.topbar-right { display: flex; align-items: center; gap: 16px; margin-left: auto; }
+
+/* User switcher */
+.user-switcher { display: flex; gap: 6px; }
+.user-chip {
+  background: var(--faint); border: 1px solid var(--border);
+  border-radius: 20px; padding: 4px 12px 4px 6px;
+  display: flex; align-items: center; gap: 6px;
+  cursor: pointer; transition: all 0.2s; font-size: 12px; color: var(--muted);
+}
+.user-chip:hover  { border-color: var(--bh); color: var(--text); }
+.user-chip.active { border-color: var(--c0); background: rgba(0,255,128,0.08); color: var(--c0); }
+.user-chip .av    { font-size: 16px; }
+
+/* ─── LEFT PANEL ─── */
+.left-panel {
+  background: var(--bg1);
+  border-right: 1px solid var(--border);
+  display: flex; flex-direction: column;
+  overflow-y: auto; overflow-x: hidden;
+}
+
+/* Score ring */
+.score-section {
+  padding: 20px;
+  border-bottom: 1px solid var(--border);
+  display: flex; flex-direction: column; align-items: center;
+}
+.score-ring-wrap { position: relative; width: 120px; height: 120px; margin-bottom: 12px; }
+.score-ring-wrap canvas { position: absolute; inset: 0; }
+.score-inner { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+.score-num  { font-family: var(--font-data); font-size: 28px; font-weight: 900; color: var(--c0); line-height: 1; }
+.score-word { font-size: 9px; color: var(--muted); letter-spacing: 2px; text-transform: uppercase; margin-top: 3px; }
+.score-label { font-size: 12px; color: var(--muted); text-align: center; }
+
+.user-info { text-align: center; margin-bottom: 12px; }
+.user-info .uname { font-size: 15px; font-weight: 600; }
+.user-info .ujob  { font-size: 11px; color: var(--muted); margin-top: 2px; }
+
+/* Live stat strip */
+.stat-strip { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--border); border-top: 1px solid var(--border); }
+.stat-cell {
+  background: var(--bg2); padding: 14px 12px;
+  display: flex; flex-direction: column; gap: 3px;
+}
+.stat-cell .sv { font-family: var(--font-data); font-size: 18px; font-weight: 700; color: var(--c0); }
+.stat-cell .sl { font-size: 10px; color: var(--muted); letter-spacing: 0.5px; text-transform: uppercase; }
+
+/* Timeline */
+.timeline-section { flex: 1; padding: 16px 0; }
+.section-head { padding: 0 16px 10px; font-size: 10px; color: var(--muted); letter-spacing: 2px; text-transform: uppercase; display: flex; justify-content: space-between; align-items: center; }
+.section-head span { background: var(--faint); border-radius: 4px; padding: 2px 6px; font-size: 9px; color: var(--c0); }
+
+.trip-item {
+  display: flex; gap: 10px;
+  padding: 10px 16px; cursor: pointer;
+  border-left: 2px solid transparent;
+  transition: all 0.15s; position: relative;
+}
+.trip-item:hover   { background: rgba(0,255,128,0.04); border-left-color: var(--bh); }
+.trip-item.active  { background: rgba(0,255,128,0.07); border-left-color: var(--c0); }
+
+.trip-dot {
+  width: 28px; height: 28px; border-radius: 8px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 14px; background: var(--faint); border: 1px solid var(--border);
+  margin-top: 2px;
+}
+.trip-body { flex: 1; min-width: 0; }
+.trip-time  { font-family: var(--font-mono); font-size: 10px; color: var(--muted); }
+.trip-label { font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.trip-route { font-size: 10px; color: var(--muted); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.trip-co2   { font-family: var(--font-mono); font-size: 11px; color: var(--ca); margin-top: 3px; }
+.trip-co2.clean { color: var(--c0); }
+
+/* ─── MAP CENTER ─── */
+.map-area { position: relative; }
+#main-map { width: 100%; height: 100%; }
+
+/* Map overlays */
+.map-overlay {
+  position: absolute; z-index: 800;
+  background: var(--glass);
+  border: 1px solid var(--border);
+  border-radius: var(--r2);
+  backdrop-filter: blur(12px);
+}
+.live-badge {
+  top: 16px; left: 16px;
+  padding: 8px 16px;
+  display: flex; align-items: center; gap: 8px;
+  font-size: 11px; letter-spacing: 2px; text-transform: uppercase;
+}
+.live-badge .ld { width: 6px; height: 6px; border-radius: 50%; background: var(--cr); animation: gpsblink 0.8s infinite; }
+
+.speed-badge {
+  bottom: 80px; left: 16px;
+  padding: 12px 18px; text-align: center;
+}
+.speed-badge .sv { font-family: var(--font-data); font-size: 28px; font-weight: 900; color: var(--c1); }
+.speed-badge .sl { font-size: 9px; color: var(--muted); letter-spacing: 2px; }
+
+.mode-badge {
+  top: 16px; right: 16px;
+  padding: 10px 16px; text-align: center;
+}
+.mode-badge .mv { font-size: 24px; margin-bottom: 4px; }
+.mode-badge .ml { font-size: 11px; font-weight: 600; color: var(--c0); letter-spacing: 1px; }
+
+/* CO₂ live meter */
+.co2-meter {
+  bottom: 80px; right: 16px;
+  padding: 14px 18px; text-align: center; min-width: 110px;
+}
+.co2-meter .cv { font-family: var(--font-data); font-size: 22px; font-weight: 700; }
+.co2-meter .cl { font-size: 9px; color: var(--muted); letter-spacing: 1.5px; text-transform: uppercase; margin-top: 2px; }
+
+/* Map mode toggle */
+.map-modes {
+  bottom: 16px; left: 50%; transform: translateX(-50%);
+  display: flex; gap: 4px; padding: 6px;
+  border-radius: 30px;
+}
+.map-mode-btn {
+  background: none; border: none;
+  color: var(--muted); font-family: var(--font-ui);
+  font-size: 12px; padding: 5px 14px; border-radius: 20px;
+  cursor: pointer; transition: all 0.2s;
+}
+.map-mode-btn.active { background: rgba(0,255,128,0.15); color: var(--c0); }
+.map-mode-btn:hover  { color: var(--text); }
+
+/* ─── RIGHT PANEL ─── */
+.right-panel {
+  background: var(--bg1);
+  border-left: 1px solid var(--border);
+  display: flex; flex-direction: column;
+  overflow-y: auto;
+}
+
+.rpanel-section {
+  padding: 16px;
+  border-bottom: 1px solid var(--border);
+}
+.rpanel-title {
+  font-size: 10px; color: var(--muted);
+  letter-spacing: 2px; text-transform: uppercase;
+  margin-bottom: 14px; display: flex; align-items: center; gap: 8px;
+}
+.rpanel-title::after { content:''; flex:1; height:1px; background:var(--border); }
+
+/* Transport mode selector */
+.mode-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
+.mode-btn {
+  background: var(--faint); border: 1px solid var(--border);
+  border-radius: 10px; padding: 10px 4px;
+  cursor: pointer; transition: all 0.2s;
+  text-align: center; display: flex; flex-direction: column;
+  align-items: center; gap: 4px;
+}
+.mode-btn:hover  { border-color: var(--bh); background: rgba(0,255,128,0.05); }
+.mode-btn.active { border-color: var(--c0); background: rgba(0,255,128,0.12); }
+.mode-btn .me { font-size: 18px; }
+.mode-btn .ml { font-size: 8px; color: var(--muted); text-align: center; line-height: 1.2; }
+.mode-btn.active .ml { color: var(--c0); }
+
+/* Mode CO₂ comparison */
+.mode-compare { display: flex; flex-direction: column; gap: 6px; }
+.mc-row { display: flex; align-items: center; gap: 8px; }
+.mc-row .me { font-size: 14px; flex-shrink: 0; width: 20px; text-align: center; }
+.mc-row .ml { font-size: 11px; color: var(--muted); width: 72px; flex-shrink: 0; }
+.mc-bar-track { flex: 1; height: 5px; background: var(--faint); border-radius: 3px; overflow: hidden; }
+.mc-bar-fill  { height: 100%; border-radius: 3px; transition: width 0.8s cubic-bezier(0.25,0.46,0.45,0.94); }
+.mc-val { font-family: var(--font-mono); font-size: 10px; color: var(--muted); width: 44px; text-align: right; }
+
+/* Weekly chart */
+.week-chart-wrap { position: relative; height: 120px; }
+
+/* Recommendations */
+.rec-list { display: flex; flex-direction: column; gap: 8px; }
+.rec-item {
+  background: var(--bg2); border: 1px solid var(--border);
+  border-radius: var(--r); padding: 12px 14px;
+  transition: border-color 0.2s;
+  position: relative; overflow: hidden;
+}
+.rec-item:hover { border-color: var(--bh); }
+.rec-item::before { content:''; position:absolute; left:0; top:0; bottom:0; width:3px; }
+.rec-item.high::before   { background: var(--cr); }
+.rec-item.medium::before { background: var(--ca); }
+.rec-item.low::before    { background: var(--c0); }
+.rec-item .ri   { font-size: 18px; margin-bottom: 6px; }
+.rec-item .rt   { font-size: 12px; font-weight: 600; margin-bottom: 4px; }
+.rec-item .rd   { font-size: 11px; color: var(--muted); line-height: 1.5; }
+.rec-item .rs   { font-family: var(--font-mono); font-size: 10px; margin-top: 6px; color: var(--c0); }
+
+/* Save impact pill */
+.save-pill {
+  background: rgba(0,255,128,0.08);
+  border: 1px solid rgba(0,255,128,0.2);
+  border-radius: 8px; padding: 10px 14px;
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 12px;
+}
+.save-pill .sv { font-family: var(--font-data); font-size: 16px; font-weight: 700; color: var(--c0); }
+.save-pill .sl { font-size: 10px; color: var(--muted); letter-spacing: 0.5px; }
+
+/* ─── LEAFLET OVERRIDES ─── */
+.leaflet-container { background: #040d08 !important; }
+.leaflet-tile { filter: invert(1) hue-rotate(150deg) saturate(0.4) brightness(0.8); }
+.leaflet-control-zoom { display: none; }
+
+/* ─── SCROLLBAR ─── */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+/* ─── ANIMATIONS ─── */
+@keyframes fadeIn  { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:none; } }
+@keyframes pulse   { 0%,100%{opacity:1} 50%{opacity:0.5} }
+@keyframes scanin  { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0 0% 0 0); } }
+
+.fadeIn  { animation: fadeIn 0.4s ease both; }
+.pulse   { animation: pulse 2s infinite; }
+
+/* GPS marker custom */
+.gps-marker-inner {
+  width: 16px; height: 16px; border-radius: 50%;
+  background: var(--c0); border: 3px solid #fff;
+  box-shadow: 0 0 0 4px rgba(0,255,128,0.3), 0 0 20px rgba(0,255,128,0.5);
+  animation: gpsblink 1.2s infinite;
+}
+</style>
+</head>
+<body>
+
+<div class="hud">
+  <!-- ══ TOP BAR ══ -->
+  <header class="topbar">
+    <div class="logo">
+      <div class="logo-mark">🌍</div>
+      <div>
+        <div class="logo-name">ECOTRACE</div>
+        <div class="logo-sub">GPS Carbon Intelligence</div>
+      </div>
+    </div>
+
+    <div class="topbar-mid">
+      <div class="gps-status">
+        <div class="gps-dot"></div>
+        <span>GPS LIVE</span>
+      </div>
+      <div class="coord-display" id="coord-display">LAT 12.9352° N · LNG 77.6245° E</div>
+      <div style="font-size:11px; color:var(--muted);" id="topbar-time">--:--</div>
+    </div>
+
+    <div class="topbar-right">
+      <div class="user-switcher" id="user-switcher"></div>
+    </div>
+  </header>
+
+  <!-- ══ LEFT PANEL ══ -->
+  <aside class="left-panel">
+    <!-- Score + User -->
+    <div class="score-section">
+      <div class="user-info">
+        <div class="uname" id="u-name">—</div>
+        <div class="ujob" id="u-job">—</div>
+      </div>
+      <div class="score-ring-wrap">
+        <canvas id="score-ring" width="120" height="120"></canvas>
+        <div class="score-inner">
+          <div class="score-num" id="score-num">—</div>
+          <div class="score-word">SCORE</div>
+        </div>
+      </div>
+      <div class="score-label" id="score-label">Loading…</div>
+    </div>
+
+    <!-- Live Stats -->
+    <div class="stat-strip">
+      <div class="stat-cell">
+        <div class="sv" id="stat-co2">0.000</div>
+        <div class="sl">kg CO₂ today</div>
+      </div>
+      <div class="stat-cell">
+        <div class="sv" id="stat-dist">0.0</div>
+        <div class="sl">km travelled</div>
+      </div>
+      <div class="stat-cell">
+        <div class="sv" id="stat-trips">0</div>
+        <div class="sl">trips</div>
+      </div>
+      <div class="stat-cell">
+        <div class="sv" id="stat-mode">—</div>
+        <div class="sl">current mode</div>
+      </div>
+    </div>
+
+    <!-- Timeline -->
+    <div class="timeline-section">
+      <div class="section-head">
+        Daily Schedule <span id="trip-count-badge">0 trips</span>
+      </div>
+      <div id="timeline-list"></div>
+    </div>
+  </aside>
+
+  <!-- ══ MAP ══ -->
+  <div class="map-area">
+    <div id="main-map"></div>
+
+    <!-- Overlays -->
+    <div class="map-overlay live-badge">
+      <div class="ld"></div>
+      <span>LIVE TRACKING</span>
+    </div>
+
+    <div class="map-overlay speed-badge">
+      <div class="sv" id="map-speed">0</div>
+      <div class="sl">KM/H</div>
+    </div>
+
+    <div class="map-overlay mode-badge">
+      <div class="mv" id="map-mode-icon">🚶</div>
+      <div class="ml" id="map-mode-label">WALKING</div>
+    </div>
+
+    <div class="map-overlay co2-meter">
+      <div class="cv" id="map-co2" style="color:var(--c0)">0.000</div>
+      <div class="cl">KG CO₂ NOW</div>
+    </div>
+
+    <div class="map-overlay map-modes">
+      <button class="map-mode-btn active" onclick="setMapStyle('dark')">Dark</button>
+      <button class="map-mode-btn" onclick="setMapStyle('satellite')">Satellite</button>
+      <button class="map-mode-btn" onclick="setMapStyle('terrain')">Terrain</button>
+    </div>
+  </div>
+
+  <!-- ══ RIGHT PANEL ══ -->
+  <aside class="right-panel">
+    <!-- Mode selector -->
+    <div class="rpanel-section">
+      <div class="rpanel-title">Transport Mode</div>
+      <div class="mode-grid" id="mode-grid"></div>
+    </div>
+
+    <!-- CO₂ Comparison -->
+    <div class="rpanel-section">
+      <div class="rpanel-title">Mode CO₂ Comparison</div>
+      <div class="mode-compare" id="mode-compare"></div>
+    </div>
+
+    <!-- Weekly trend -->
+    <div class="rpanel-section">
+      <div class="rpanel-title">7-Day Trend</div>
+      <div class="week-chart-wrap"><canvas id="week-chart"></canvas></div>
+    </div>
+
+    <!-- AI Recs -->
+    <div class="rpanel-section">
+      <div class="rpanel-title">AI Recommendations</div>
+      <div class="save-pill">
+        <div>
+          <div class="sv" id="save-val">0.000 kg</div>
+          <div class="sl">potential daily saving</div>
+        </div>
+        <div style="font-size: 24px;">🤖</div>
+      </div>
+      <div class="rec-list" id="rec-list"></div>
+    </div>
+  </aside>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script>
+// ══════════════════════════════════════════════
+//  ECOTRACE GPS FRONTEND ENGINE
+// ══════════════════════════════════════════════
+
+let map, liveMarker, pathLines = [], allModes = {}, currentUser = 'usr_arjun';
+let scheduleData = null, weekChart = null, liveInterval = null;
+let activeTripIdx = -1;
+
+// ─── MAP INIT ─────────────────────────────────
+function initMap() {
+  map = L.map('main-map', {
+    center: [12.9352, 77.6245], zoom: 13,
+    zoomControl: false, attributionControl: false
+  });
+
+  setMapStyle('dark');
+
+  // Live marker (GPS dot)
+  const el = document.createElement('div');
+  el.className = 'gps-marker-inner';
+  liveMarker = L.marker([12.9352, 77.6245], {
+    icon: L.divIcon({ html: el, className: '', iconSize: [16,16], iconAnchor: [8,8] })
+  }).addTo(map);
+}
+
+function setMapStyle(style) {
+  document.querySelectorAll('.map-mode-btn').forEach(b => b.classList.remove('active'));
+  event?.target?.classList.add('active');
+  if (map) map.eachLayer(l => { if (l._url) map.removeLayer(l); });
+
+  const tiles = {
+    dark:      'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+    satellite: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+    terrain:   'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png'
+  };
+  L.tileLayer(tiles[style] || tiles.dark, { maxZoom: 19 }).addTo(map);
+}
+
+// ─── LOAD USERS ───────────────────────────────
+async function loadUsers() {
+  const res = await fetch('/api/users');
+  const users = await res.json();
+  const sw = document.getElementById('user-switcher');
+  sw.innerHTML = Object.entries(users).map(([uid, u]) => `
+    <div class="user-chip ${uid === currentUser ? 'active' : ''}" onclick="switchUser('${uid}')">
+      <span class="av">${u.avatar}</span>
+      <span>${u.name.split(' ')[0]}</span>
+    </div>
+  `).join('');
+}
+
+async function switchUser(uid) {
+  currentUser = uid;
+  await fetch(`/api/set_user/${uid}`);
+  document.querySelectorAll('.user-chip').forEach(c => c.classList.remove('active'));
+  document.querySelectorAll('.user-chip').forEach(c => {
+    if (c.textContent.trim()) c.classList.toggle('active', c.onclick?.toString().includes(uid));
+  });
+  // Re-render user chips
+  loadUsers();
+  await loadAll();
+}
+
+// ─── LOAD MODES ───────────────────────────────
+async function loadModes() {
+  const res = await fetch('/api/modes');
+  allModes = await res.json();
+
+  const grid = document.getElementById('mode-grid');
+  grid.innerHTML = Object.entries(allModes).map(([key, m]) => `
+    <div class="mode-btn ${key === 'car_petrol' ? 'active' : ''}" id="mbtn-${key}" onclick="selectMode('${key}')">
+      <div class="me">${m.icon}</div>
+      <div class="ml">${m.label}</div>
+    </div>
+  `).join('');
+}
+
+async function selectMode(modeKey) {
+  document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('mbtn-' + modeKey)?.classList.add('active');
+
+  const res = await fetch('/api/set_mode', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ mode: modeKey })
+  });
+  const d = await res.json();
+  if (d.ok) {
+    document.getElementById('stat-co2').textContent = d.new_total_co2.toFixed(3);
+    document.getElementById('stat-mode').textContent = allModes[modeKey]?.icon || '—';
+    await loadSchedule();
+    await loadModeCompare();
+  }
+}
+
+// ─── LOAD SCHEDULE ────────────────────────────
+async function loadSchedule() {
+  const res = await fetch('/api/schedule');
+  scheduleData = await res.json();
+
+  // User info
+  document.getElementById('u-name').textContent   = scheduleData.user.name;
+  document.getElementById('u-job').textContent    = scheduleData.user.profession + ' · ' + scheduleData.user.company;
+  document.getElementById('stat-co2').textContent  = scheduleData.total_co2.toFixed(3);
+  document.getElementById('stat-dist').textContent = scheduleData.total_distance.toFixed(1);
+  document.getElementById('stat-trips').textContent = scheduleData.trip_count;
+  document.getElementById('map-co2').textContent   = scheduleData.total_co2.toFixed(3);
+  document.getElementById('trip-count-badge').textContent = scheduleData.trip_count + ' trips';
+
+  // Color CO₂ meter
+  const co2Color = scheduleData.total_co2 < 0.5 ? 'var(--c0)' : scheduleData.total_co2 < 2 ? 'var(--ca)' : 'var(--cr)';
+  document.getElementById('map-co2').style.color = co2Color;
+
+  // Score ring
+  drawScoreRing(scheduleData.score, scheduleData.score_label);
+
+  // Timeline
+  renderTimeline(scheduleData.trips);
+
+  // Map paths
+  renderMapPaths(scheduleData.trips);
+
+  // Recs
+  renderRecs(scheduleData.recommendations, scheduleData.total_saved);
+}
+
+// ─── SCORE RING ───────────────────────────────
+function drawScoreRing(score, label) {
+  const canvas = document.getElementById('score-ring');
+  const ctx = canvas.getContext('2d');
+  const cx = 60, cy = 60, r = 50;
+
+  ctx.clearRect(0, 0, 120, 120);
+
+  // Background ring
+  ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI*2);
+  ctx.strokeStyle = 'rgba(0,255,128,0.1)'; ctx.lineWidth = 8; ctx.stroke();
+
+  // Score arc
+  const start = -Math.PI/2;
+  const end   = start + (score/100) * Math.PI * 2;
+  const grad  = ctx.createLinearGradient(cx-r, cy, cx+r, cy);
+  grad.addColorStop(0, '#00ff80');
+  grad.addColorStop(1, '#00e5b0');
+  ctx.beginPath(); ctx.arc(cx, cy, r, start, end);
+  ctx.strokeStyle = grad; ctx.lineWidth = 8;
+  ctx.lineCap = 'round'; ctx.stroke();
+
+  document.getElementById('score-num').textContent   = score;
+  document.getElementById('score-label').textContent = label;
+}
+
+// ─── TIMELINE ─────────────────────────────────
+function renderTimeline(trips) {
+  const el = document.getElementById('timeline-list');
+  el.innerHTML = trips.map((t, i) => {
+    const isClean = t.co2_kg === 0;
+    return `
+    <div class="trip-item ${i===0?'active':''}" id="trip-${i}" onclick="focusTrip(${i})">
+      <div class="trip-dot" style="border-color:${t.mode_color}20;">${t.mode_icon}</div>
+      <div class="trip-body">
+        <div class="trip-time">${t.time}</div>
+        <div class="trip-label">${t.label}</div>
+        <div class="trip-route">${t.from_place} → ${t.to_place}</div>
+        <div class="trip-co2 ${isClean?'clean':''}">
+          ${isClean ? '🌿 Zero emission' : t.co2_kg.toFixed(4) + ' kg CO₂'} · ${t.distance.toFixed(1)} km
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// ─── MAP PATHS ────────────────────────────────
+function renderMapPaths(trips) {
+  pathLines.forEach(l => map.removeLayer(l));
+  pathLines = [];
+
+  trips.forEach((t, i) => {
+    if (t.gps_trace.length < 2) return;
+    const line = L.polyline(t.gps_trace, {
+      color: t.mode_color, weight: 3, opacity: 0.75,
+      dashArray: t.mode === 'walking' ? '4 6' : null
+    }).addTo(map);
+
+    // Start/end markers
+    L.circleMarker(t.gps_trace[0], {
+      radius: 5, color: t.mode_color, fillColor: t.mode_color,
+      fillOpacity: 0.9, weight: 2
+    }).addTo(map);
+
+    pathLines.push(line);
+  });
+
+  // Fit map to all paths
+  if (trips.length > 0) {
+    const allPts = trips.flatMap(t => t.gps_trace);
+    if (allPts.length) map.fitBounds(L.latLngBounds(allPts), { padding: [40,40] });
+  }
+}
+
+// ─── FOCUS TRIP ───────────────────────────────
+function focusTrip(idx) {
+  document.querySelectorAll('.trip-item').forEach(el => el.classList.remove('active'));
+  document.getElementById('trip-' + idx)?.classList.add('active');
+  activeTripIdx = idx;
+
+  if (!scheduleData?.trips[idx]) return;
+  const t = scheduleData.trips[idx];
+  const mid = t.gps_trace[Math.floor(t.gps_trace.length/2)];
+  if (mid) {
+    map.flyTo(mid, 15, { duration: 0.8 });
+    liveMarker.setLatLng(mid);
+    document.getElementById('map-speed').textContent   = Math.round(t.speed);
+    document.getElementById('map-mode-icon').textContent  = t.mode_icon;
+    document.getElementById('map-mode-label').textContent = t.mode_label.toUpperCase();
+    document.getElementById('stat-mode').textContent   = t.mode_icon;
+    document.getElementById('coord-display').textContent  =
+      `LAT ${mid[0].toFixed(4)}° N · LNG ${mid[1].toFixed(4)}° E`;
+  }
+}
+
+// ─── LIVE GPS SIMULATION ──────────────────────
+async function updateLive() {
+  try {
+    const res = await fetch('/api/gps/live');
+    const d = await res.json();
+    if (!d) return;
+
+    const lat = d.current_lat, lng = d.current_lng;
+    liveMarker.setLatLng([lat, lng]);
+    document.getElementById('coord-display').textContent =
+      `LAT ${lat.toFixed(4)}° N · LNG ${lng.toFixed(4)}° E`;
+    document.getElementById('map-speed').textContent     = Math.round(d.speed || 0);
+    document.getElementById('map-mode-icon').textContent = d.mode_icon || '🚶';
+    document.getElementById('map-mode-label').textContent= (d.mode_label||'WALKING').toUpperCase();
+  } catch(e) {}
+}
+
+// ─── CLOCK ────────────────────────────────────
+function updateClock() {
+  const now = new Date();
+  document.getElementById('topbar-time').textContent =
+    now.toLocaleTimeString('en-IN', {hour:'2-digit', minute:'2-digit', second:'2-digit'}) + ' IST';
+}
+
+// ─── MODE COMPARE ─────────────────────────────
+async function loadModeCompare() {
+  const res = await fetch('/api/compare_modes');
+  const data = await res.json();
+  const maxCo2 = Math.max(...data.map(d => d.co2), 0.1);
+
+  document.getElementById('mode-compare').innerHTML = data.map(d => `
+    <div class="mc-row">
+      <div class="me">${d.icon}</div>
+      <div class="ml">${d.label}</div>
+      <div class="mc-bar-track">
+        <div class="mc-bar-fill" style="width:${((d.co2||0)/maxCo2*100).toFixed(1)}%; background:${d.color};"></div>
+      </div>
+      <div class="mc-val">${d.co2.toFixed(3)}</div>
+    </div>
+  `).join('');
+}
+
+// ─── WEEK CHART ───────────────────────────────
+async function loadWeekChart() {
+  const res = await fetch('/api/week');
+  const data = await res.json();
+
+  const ctx = document.getElementById('week-chart').getContext('2d');
+  if (weekChart) weekChart.destroy();
+
+  weekChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: data.map(d => d.day),
+      datasets: [{
+        data: data.map(d => d.co2),
+        backgroundColor: data.map(d => 'rgba(0,255,128,0.35)'),
+        borderColor: data.map(d => '#00ff80'),
+        borderRadius: 4, borderWidth: 1,
+        hoverBackgroundColor: 'rgba(0,255,128,0.6)'
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false }, tooltip: {
+        backgroundColor: '#0b1a0f', borderColor: 'rgba(0,255,128,0.3)', borderWidth: 1,
+        titleColor: '#d4f0dc', bodyColor: '#4d8060',
+        callbacks: { label: ctx => ctx.parsed.y.toFixed(4) + ' kg CO₂' }
+      }},
+      scales: {
+        x: { grid: { color: 'rgba(0,255,128,0.05)' }, ticks: { color: '#4d8060', font: { size: 10 } }},
+        y: { grid: { color: 'rgba(0,255,128,0.05)' }, ticks: { color: '#4d8060', font: { size: 9 }, callback: v => v.toFixed(2) }}
+      }
+    }
+  });
+}
+
+// ─── RECS ─────────────────────────────────────
+function renderRecs(recs, totalSaved) {
+  document.getElementById('save-val').textContent = (totalSaved || 0).toFixed(3) + ' kg';
+
+  if (!recs?.length) {
+    document.getElementById('rec-list').innerHTML =
+      `<div style="text-align:center; padding:20px; color:var(--muted); font-size:12px;">🌿 Your commute is already optimised!</div>`;
+    return;
+  }
+  document.getElementById('rec-list').innerHTML = recs.map(r => `
+    <div class="rec-item ${r.priority}">
+      <div class="ri">${r.icon}</div>
+      <div class="rt">${r.title}</div>
+      <div class="rd">${r.desc}</div>
+      <div class="rs">Save ${r.saving} kg CO₂/day</div>
+    </div>
+  `).join('');
+}
+
+// ─── LOAD ALL ─────────────────────────────────
+async function loadAll() {
+  await Promise.all([
+    loadSchedule(),
+    loadModeCompare(),
+    loadWeekChart(),
+  ]);
+}
+
+// ─── BOOT ─────────────────────────────────────
+(async () => {
+  initMap();
+  await loadUsers();
+  await loadModes();
+  await loadAll();
+
+  updateClock();
+  setInterval(updateClock, 1000);
+  setInterval(updateLive, 4000);
+})();
+</script>
+</body>
+</html>
